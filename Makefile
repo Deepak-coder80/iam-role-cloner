@@ -1,191 +1,287 @@
-# Makefile for IAM Role Cloner
+# Makefile for ECR Deploy Tool
 
+# Variables
 APP_NAME := iam-role-cloner
 VERSION := 1.0.0
-GIT_COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo "dev")
-BUILD_DATE := $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
-GO_VERSION := $(shell go version | awk '{print $$3}')
-
-# Build directory
 BUILD_DIR := build
+DIST_DIR := dist
 
-# Go build flags
-LDFLAGS := -s -w
-LDFLAGS += -X 'iam-role-cloner/cmd.Version=$(VERSION)'
-LDFLAGS += -X 'iam-role-cloner/cmd.GitCommit=$(GIT_COMMIT)'
-LDFLAGS += -X 'iam-role-cloner/cmd.BuildDate=$(BUILD_DATE)'
+# Go parameters
+GOCMD := go
+GOBUILD := $(GOCMD) build
+GOCLEAN := $(GOCMD) clean
+GOTEST := $(GOCMD) test
+GOGET := $(GOCMD) get
+GOMOD := $(GOCMD) mod
+
+# Build flags
+LDFLAGS := -ldflags="-s -w"
 
 # Default target
 .PHONY: all
-all: clean test build
-
-# Clean build directory
-.PHONY: clean
-clean:
-	@echo "🧹 Cleaning build directory..."
-	rm -rf $(BUILD_DIR)
-
-# Run tests
-.PHONY: test
-test:
-	@echo "🧪 Running tests..."
-	go test -v ./...
-
-# Build for current platform
-.PHONY: build
-build:
-	@echo "🔨 Building for current platform..."
-	@mkdir -p $(BUILD_DIR)
-	go build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(APP_NAME) .
-
-# Build for all platforms
-.PHONY: build-all
-build-all: clean
-	@echo "🚀 Building $(APP_NAME) v$(VERSION) for all platforms..."
-	@echo "Git Commit: $(GIT_COMMIT)"
-	@echo "Build Date: $(BUILD_DATE)"
-	@echo "Go Version: $(GO_VERSION)"
-	@echo ""
-	@mkdir -p $(BUILD_DIR)
-
-	@echo "📦 Building binaries..."
-	@echo "  Building for Linux (amd64)..."
-	@GOOS=linux GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(APP_NAME)-linux-amd64 .
-
-	@echo "  Building for Linux (arm64)..."
-	@GOOS=linux GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(APP_NAME)-linux-arm64 .
-
-	@echo "  Building for macOS (amd64)..."
-	@GOOS=darwin GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(APP_NAME)-darwin-amd64 .
-
-	@echo "  Building for macOS (arm64)..."
-	@GOOS=darwin GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(APP_NAME)-darwin-arm64 .
-
-	@echo "  Building for Windows (amd64)..."
-	@GOOS=windows GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(APP_NAME)-windows-amd64.exe .
-
-	@echo "  Building for Windows (arm64)..."
-	@GOOS=windows GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(APP_NAME)-windows-arm64.exe .
-
-	@echo ""
-	@echo "✅ Build completed! Binaries created in $(BUILD_DIR)/"
-	@echo ""
-	@echo "📊 Build artifacts:"
-	@ls -lh $(BUILD_DIR)/
+all: clean deps build
 
 # Install dependencies
 .PHONY: deps
 deps:
-	@echo "📦 Installing dependencies..."
-	go mod download
-	go mod tidy
+	@echo "📥 Installing dependencies..."
+	$(GOMOD) download
+	$(GOMOD) tidy
 
-# Run locally
+# Clean build artifacts
+.PHONY: clean
+clean:
+	@echo "🧹 Cleaning..."
+	$(GOCLEAN)
+	rm -rf $(BUILD_DIR)
+	rm -rf $(DIST_DIR)
+	rm -f $(APP_NAME)
+
+# Build for current platform
+.PHONY: build
+build:
+	@echo "🏗️  Building $(APP_NAME)..."
+	$(GOBUILD) $(LDFLAGS) -o $(APP_NAME) .
+
+# Run the application
 .PHONY: run
-run: build
-	@echo "🏃‍♂️ Running $(APP_NAME)..."
-	./$(BUILD_DIR)/$(APP_NAME)
+run:
+	@echo "🚀 Running $(APP_NAME)..."
+	$(GOCMD) run main.go
 
-# Development mode - build and run
+# Test the application
+.PHONY: test
+test:
+	@echo "🧪 Running tests..."
+	$(GOTEST) -v ./...
+
+# Build for all platforms
+.PHONY: build-all
+build-all: clean
+	@echo "🏗️  Building for all platforms..."
+	mkdir -p $(BUILD_DIR)
+
+	# Linux AMD64
+	GOOS=linux GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(APP_NAME)-linux-amd64 .
+
+	# Linux ARM64
+	GOOS=linux GOARCH=arm64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(APP_NAME)-linux-arm64 .
+
+	# Windows AMD64
+	GOOS=windows GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(APP_NAME)-windows-amd64.exe .
+
+	# macOS AMD64
+	GOOS=darwin GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(APP_NAME)-darwin-amd64 .
+
+	# macOS ARM64
+	GOOS=darwin GOARCH=arm64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(APP_NAME)-darwin-arm64 .
+
+	@echo "✅ Built all platforms in $(BUILD_DIR)/"
+
+# Create distribution packages
+.PHONY: dist
+dist: build-all
+	@echo "📦 Creating distribution packages..."
+	mkdir -p $(DIST_DIR)
+
+	# Linux packages
+	$(MAKE) dist-linux-amd64
+	$(MAKE) dist-linux-arm64
+
+	# Windows package
+	$(MAKE) dist-windows
+
+	# macOS packages
+	$(MAKE) dist-darwin-amd64
+	$(MAKE) dist-darwin-arm64
+
+	# Create checksums
+	cd $(DIST_DIR) && sha256sum *.deb *.tar.gz *.zip > checksums.txt
+
+	@echo "✅ Distribution packages created in $(DIST_DIR)/"
+
+# Linux distribution for AMD64
+.PHONY: dist-linux-amd64
+dist-linux-amd64:
+	@echo "📦 Creating Linux AMD64 package..."
+	mkdir -p $(DIST_DIR)/$(APP_NAME)-$(VERSION)-linux-amd64/usr/local/bin
+	mkdir -p $(DIST_DIR)/$(APP_NAME)-$(VERSION)-linux-amd64/DEBIAN
+
+	cp $(BUILD_DIR)/$(APP_NAME)-linux-amd64 $(DIST_DIR)/$(APP_NAME)-$(VERSION)-linux-amd64/usr/local/bin/$(APP_NAME)
+	chmod +x $(DIST_DIR)/$(APP_NAME)-$(VERSION)-linux-amd64/usr/local/bin/$(APP_NAME)
+
+	# Create control file
+	@echo "Package: $(APP_NAME)" > $(DIST_DIR)/$(APP_NAME)-$(VERSION)-linux-amd64/DEBIAN/control
+	@echo "Version: $(VERSION)" >> $(DIST_DIR)/$(APP_NAME)-$(VERSION)-linux-amd64/DEBIAN/control
+	@echo "Section: utils" >> $(DIST_DIR)/$(APP_NAME)-$(VERSION)-linux-amd64/DEBIAN/control
+	@echo "Priority: optional" >> $(DIST_DIR)/$(APP_NAME)-$(VERSION)-linux-amd64/DEBIAN/control
+	@echo "Architecture: amd64" >> $(DIST_DIR)/$(APP_NAME)-$(VERSION)-linux-amd64/DEBIAN/control
+	@echo "Depends: docker.io, awscli" >> $(DIST_DIR)/$(APP_NAME)-$(VERSION)-linux-amd64/DEBIAN/control
+	@echo "Maintainer: Your Team <team@company.com>" >> $(DIST_DIR)/$(APP_NAME)-$(VERSION)-linux-amd64/DEBIAN/control
+	@echo "Description: ECR Deploy Tool" >> $(DIST_DIR)/$(APP_NAME)-$(VERSION)-linux-amd64/DEBIAN/control
+	@echo " A tool to automate ECR repository creation and Docker image deployment" >> $(DIST_DIR)/$(APP_NAME)-$(VERSION)-linux-amd64/DEBIAN/control
+
+	# Create .deb package
+	dpkg-deb --build $(DIST_DIR)/$(APP_NAME)-$(VERSION)-linux-amd64 $(DIST_DIR)/$(APP_NAME)-$(VERSION)-linux-amd64.deb
+
+	# Create tar.gz
+	cd $(DIST_DIR)/$(APP_NAME)-$(VERSION)-linux-amd64 && tar -czf ../$(APP_NAME)-$(VERSION)-linux-amd64.tar.gz usr/
+
+# Linux distribution for ARM64
+.PHONY: dist-linux-arm64
+dist-linux-arm64:
+	@echo "📦 Creating Linux ARM64 package..."
+	mkdir -p $(DIST_DIR)/$(APP_NAME)-$(VERSION)-linux-arm64/usr/local/bin
+	mkdir -p $(DIST_DIR)/$(APP_NAME)-$(VERSION)-linux-arm64/DEBIAN
+
+	cp $(BUILD_DIR)/$(APP_NAME)-linux-arm64 $(DIST_DIR)/$(APP_NAME)-$(VERSION)-linux-arm64/usr/local/bin/$(APP_NAME)
+	chmod +x $(DIST_DIR)/$(APP_NAME)-$(VERSION)-linux-arm64/usr/local/bin/$(APP_NAME)
+
+	# Create control file
+	@echo "Package: $(APP_NAME)" > $(DIST_DIR)/$(APP_NAME)-$(VERSION)-linux-arm64/DEBIAN/control
+	@echo "Version: $(VERSION)" >> $(DIST_DIR)/$(APP_NAME)-$(VERSION)-linux-arm64/DEBIAN/control
+	@echo "Section: utils" >> $(DIST_DIR)/$(APP_NAME)-$(VERSION)-linux-arm64/DEBIAN/control
+	@echo "Priority: optional" >> $(DIST_DIR)/$(APP_NAME)-$(VERSION)-linux-arm64/DEBIAN/control
+	@echo "Architecture: arm64" >> $(DIST_DIR)/$(APP_NAME)-$(VERSION)-linux-arm64/DEBIAN/control
+	@echo "Depends: docker.io, awscli" >> $(DIST_DIR)/$(APP_NAME)-$(VERSION)-linux-arm64/DEBIAN/control
+	@echo "Maintainer: Your Team <team@company.com>" >> $(DIST_DIR)/$(APP_NAME)-$(VERSION)-linux-arm64/DEBIAN/control
+	@echo "Description: ECR Deploy Tool" >> $(DIST_DIR)/$(APP_NAME)-$(VERSION)-linux-arm64/DEBIAN/control
+	@echo " A tool to automate ECR repository creation and Docker image deployment" >> $(DIST_DIR)/$(APP_NAME)-$(VERSION)-linux-arm64/DEBIAN/control
+
+	# Create .deb package
+	dpkg-deb --build $(DIST_DIR)/$(APP_NAME)-$(VERSION)-linux-arm64 $(DIST_DIR)/$(APP_NAME)-$(VERSION)-linux-arm64.deb
+
+	# Create tar.gz
+	cd $(DIST_DIR)/$(APP_NAME)-$(VERSION)-linux-arm64 && tar -czf ../$(APP_NAME)-$(VERSION)-linux-arm64.tar.gz usr/
+
+# Windows distribution
+.PHONY: dist-windows
+dist-windows:
+	@echo "📦 Creating Windows package..."
+	mkdir -p $(DIST_DIR)/$(APP_NAME)-$(VERSION)-windows-amd64
+
+	cp $(BUILD_DIR)/$(APP_NAME)-windows-amd64.exe $(DIST_DIR)/$(APP_NAME)-$(VERSION)-windows-amd64/$(APP_NAME).exe
+
+	# Create install script
+	@echo "@echo off" > $(DIST_DIR)/$(APP_NAME)-$(VERSION)-windows-amd64/install.bat
+	@echo "echo Installing ECR Deploy Tool..." >> $(DIST_DIR)/$(APP_NAME)-$(VERSION)-windows-amd64/install.bat
+	@echo "if not exist \"C:\\Program Files\\ECRDeploy\" mkdir \"C:\\Program Files\\ECRDeploy\"" >> $(DIST_DIR)/$(APP_NAME)-$(VERSION)-windows-amd64/install.bat
+	@echo "copy /Y $(APP_NAME).exe \"C:\\Program Files\\ECRDeploy\\\"" >> $(DIST_DIR)/$(APP_NAME)-$(VERSION)-windows-amd64/install.bat
+	@echo "setx /M PATH \"%%PATH%%;C:\\Program Files\\ECRDeploy\"" >> $(DIST_DIR)/$(APP_NAME)-$(VERSION)-windows-amd64/install.bat
+	@echo "echo Installation completed!" >> $(DIST_DIR)/$(APP_NAME)-$(VERSION)-windows-amd64/install.bat
+	@echo "pause" >> $(DIST_DIR)/$(APP_NAME)-$(VERSION)-windows-amd64/install.bat
+
+	# Create zip
+	cd $(DIST_DIR) && zip -r $(APP_NAME)-$(VERSION)-windows-amd64.zip $(APP_NAME)-$(VERSION)-windows-amd64/
+
+# macOS distribution for AMD64
+.PHONY: dist-darwin-amd64
+dist-darwin-amd64:
+	@echo "📦 Creating macOS AMD64 package..."
+	mkdir -p $(DIST_DIR)/$(APP_NAME)-$(VERSION)-darwin-amd64
+
+	cp $(BUILD_DIR)/$(APP_NAME)-darwin-amd64 $(DIST_DIR)/$(APP_NAME)-$(VERSION)-darwin-amd64/$(APP_NAME)
+	chmod +x $(DIST_DIR)/$(APP_NAME)-$(VERSION)-darwin-amd64/$(APP_NAME)
+
+	# Create install script
+	@echo "#!/bin/bash" > $(DIST_DIR)/$(APP_NAME)-$(VERSION)-darwin-amd64/install.sh
+	@echo "echo \"Installing ECR Deploy Tool...\"" >> $(DIST_DIR)/$(APP_NAME)-$(VERSION)-darwin-amd64/install.sh
+	@echo "if command -v brew &> /dev/null; then" >> $(DIST_DIR)/$(APP_NAME)-$(VERSION)-darwin-amd64/install.sh
+	@echo "    cp $(APP_NAME) \$$(brew --prefix)/bin/" >> $(DIST_DIR)/$(APP_NAME)-$(VERSION)-darwin-amd64/install.sh
+	@echo "else" >> $(DIST_DIR)/$(APP_NAME)-$(VERSION)-darwin-amd64/install.sh
+	@echo "    sudo cp $(APP_NAME) /usr/local/bin/" >> $(DIST_DIR)/$(APP_NAME)-$(VERSION)-darwin-amd64/install.sh
+	@echo "fi" >> $(DIST_DIR)/$(APP_NAME)-$(VERSION)-darwin-amd64/install.sh
+	@echo "echo \"Installation completed!\"" >> $(DIST_DIR)/$(APP_NAME)-$(VERSION)-darwin-amd64/install.sh
+
+	chmod +x $(DIST_DIR)/$(APP_NAME)-$(VERSION)-darwin-amd64/install.sh
+
+	# Create tar.gz
+	cd $(DIST_DIR) && tar -czf $(APP_NAME)-$(VERSION)-darwin-amd64.tar.gz $(APP_NAME)-$(VERSION)-darwin-amd64/
+
+# macOS distribution for ARM64
+.PHONY: dist-darwin-arm64
+dist-darwin-arm64:
+	@echo "📦 Creating macOS ARM64 package..."
+	mkdir -p $(DIST_DIR)/$(APP_NAME)-$(VERSION)-darwin-arm64
+
+	cp $(BUILD_DIR)/$(APP_NAME)-darwin-arm64 $(DIST_DIR)/$(APP_NAME)-$(VERSION)-darwin-arm64/$(APP_NAME)
+	chmod +x $(DIST_DIR)/$(APP_NAME)-$(VERSION)-darwin-arm64/$(APP_NAME)
+
+	# Create install script
+	@echo "#!/bin/bash" > $(DIST_DIR)/$(APP_NAME)-$(VERSION)-darwin-arm64/install.sh
+	@echo "echo \"Installing ECR Deploy Tool...\"" >> $(DIST_DIR)/$(APP_NAME)-$(VERSION)-darwin-arm64/install.sh
+	@echo "if command -v brew &> /dev/null; then" >> $(DIST_DIR)/$(APP_NAME)-$(VERSION)-darwin-arm64/install.sh
+	@echo "    cp $(APP_NAME) \$$(brew --prefix)/bin/" >> $(DIST_DIR)/$(APP_NAME)-$(VERSION)-darwin-arm64/install.sh
+	@echo "else" >> $(DIST_DIR)/$(APP_NAME)-$(VERSION)-darwin-arm64/install.sh
+	@echo "    sudo cp $(APP_NAME) /usr/local/bin/" >> $(DIST_DIR)/$(APP_NAME)-$(VERSION)-darwin-arm64/install.sh
+	@echo "fi" >> $(DIST_DIR)/$(APP_NAME)-$(VERSION)-darwin-arm64/install.sh
+	@echo "echo \"Installation completed!\"" >> $(DIST_DIR)/$(APP_NAME)-$(VERSION)-darwin-arm64/install.sh
+
+	chmod +x $(DIST_DIR)/$(APP_NAME)-$(VERSION)-darwin-arm64/install.sh
+
+	# Create tar.gz
+	cd $(DIST_DIR) && tar -czf $(APP_NAME)-$(VERSION)-darwin-arm64.tar.gz $(APP_NAME)-$(VERSION)-darwin-arm64/
+
+# Install locally (for development)
+.PHONY: install
+install: build
+	@echo "📦 Installing locally..."
+	sudo cp $(APP_NAME) /usr/local/bin/
+	@echo "✅ Installed to /usr/local/bin/$(APP_NAME)"
+
+# Development helpers
 .PHONY: dev
 dev:
-	@echo "🔧 Development mode..."
-	go run . $(ARGS)
+	@echo "🔄 Running in development mode..."
+	$(GOCMD) run main.go
 
-# Format code
 .PHONY: fmt
 fmt:
 	@echo "🎨 Formatting code..."
 	go fmt ./...
 
-# Lint code
+.PHONY: vet
+vet:
+	@echo "🔍 Vetting code..."
+	go vet ./...
+
 .PHONY: lint
-lint:
-	@echo "🔍 Linting code..."
-	@if command -v golangci-lint >/dev/null 2>&1; then \
-		golangci-lint run; \
-	else \
-		echo "golangci-lint not installed, skipping..."; \
-		echo "Install with: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest"; \
-	fi
+lint: fmt vet
 
-# Security check
-.PHONY: security
-security:
-	@echo "🔒 Running security checks..."
-	@if command -v gosec >/dev/null 2>&1; then \
-		gosec ./...; \
-	else \
-		echo "gosec not installed, skipping..."; \
-		echo "Install with: go install github.com/securecodewarrior/gosec/v2/cmd/gosec@latest"; \
-	fi
-
-# Create release archives
-.PHONY: package
-package: build-all
-	@echo "📦 Creating release packages..."
-	@mkdir -p $(BUILD_DIR)/packages
-
-	# Linux packages
-	@tar -czf $(BUILD_DIR)/packages/$(APP_NAME)-$(VERSION)-linux-amd64.tar.gz -C $(BUILD_DIR) $(APP_NAME)-linux-amd64
-	@tar -czf $(BUILD_DIR)/packages/$(APP_NAME)-$(VERSION)-linux-arm64.tar.gz -C $(BUILD_DIR) $(APP_NAME)-linux-arm64
-
-	# macOS packages
-	@tar -czf $(BUILD_DIR)/packages/$(APP_NAME)-$(VERSION)-darwin-amd64.tar.gz -C $(BUILD_DIR) $(APP_NAME)-darwin-amd64
-	@tar -czf $(BUILD_DIR)/packages/$(APP_NAME)-$(VERSION)-darwin-arm64.tar.gz -C $(BUILD_DIR) $(APP_NAME)-darwin-arm64
-
-	# Windows packages
-	@zip -j $(BUILD_DIR)/packages/$(APP_NAME)-$(VERSION)-windows-amd64.zip $(BUILD_DIR)/$(APP_NAME)-windows-amd64.exe
-	@zip -j $(BUILD_DIR)/packages/$(APP_NAME)-$(VERSION)-windows-arm64.zip $(BUILD_DIR)/$(APP_NAME)-windows-arm64.exe
-
-	@echo "📦 Packages created in $(BUILD_DIR)/packages/"
-	@ls -lh $(BUILD_DIR)/packages/
-
-# Install locally
-.PHONY: install
-install: build
-	@echo "📥 Installing $(APP_NAME) to /usr/local/bin..."
-	@sudo cp $(BUILD_DIR)/$(APP_NAME) /usr/local/bin/
-	@echo "✅ $(APP_NAME) installed successfully!"
-	@echo "🎯 Test with: $(APP_NAME) version"
-
-# Uninstall
-.PHONY: uninstall
-uninstall:
-	@echo "🗑️  Uninstalling $(APP_NAME)..."
-	@sudo rm -f /usr/local/bin/$(APP_NAME)
-	@echo "✅ $(APP_NAME) uninstalled successfully!"
-
-# Show help
+# Help
 .PHONY: help
 help:
-	@echo "📚 IAM Role Cloner - Available commands:"
+	@echo "ECR Deploy Tool - Makefile Commands"
+	@echo "=================================="
 	@echo ""
-	@echo "🔨 Build commands:"
-	@echo "  make build      - Build for current platform"
-	@echo "  make build-all  - Build for all platforms"
-	@echo "  make package    - Create release packages"
+	@echo "Development:"
+	@echo "  make deps      - Install dependencies"
+	@echo "  make build     - Build for current platform"
+	@echo "  make run       - Run the application"
+	@echo "  make dev       - Run in development mode"
+	@echo "  make test      - Run tests"
+	@echo "  make lint      - Format and vet code"
 	@echo ""
-	@echo "🧪 Development commands:"
-	@echo "  make dev ARGS='clone --help'  - Run in development mode"
-	@echo "  make run        - Build and run"
-	@echo "  make test       - Run tests"
-	@echo "  make fmt        - Format code"
-	@echo "  make lint       - Lint code"
-	@echo "  make security   - Run security checks"
+	@echo "Building:"
+	@echo "  make build-all - Build for all platforms"
+	@echo "  make dist      - Create distribution packages"
+	@echo "  make clean     - Clean build artifacts"
 	@echo ""
-	@echo "📦 Dependencies:"
-	@echo "  make deps       - Install dependencies"
+	@echo "Installation:"
+	@echo "  make install   - Install locally"
 	@echo ""
-	@echo "🏠 Installation:"
-	@echo "  make install    - Install to /usr/local/bin"
-	@echo "  make uninstall  - Remove from /usr/local/bin"
-	@echo ""
-	@echo "🧹 Cleanup:"
-	@echo "  make clean      - Clean build directory"
-	@echo ""
-	@echo "📋 Current build info:"
-	@echo "  Version:    $(VERSION)"
-	@echo "  Git Commit: $(GIT_COMMIT)"
-	@echo "  Build Date: $(BUILD_DATE)"
-	@echo "  Go Version: $(GO_VERSION)"
+	@echo "Examples:"
+	@echo "  make           - Clean, install deps, and build"
+	@echo "  make dist      - Create all distribution packages"
+	
+
+release-binaries: build ## Prepare raw binaries only for GitHub release
+	@echo "$(BLUE)Copying raw binaries to $(DIST_DIR)...$(RESET)"
+	@mkdir -p $(DIST_DIR)
+	@for file in $(BUILD_DIR)/*; do \
+		if [ -f "$$file" ]; then \
+			cp "$$file" $(DIST_DIR)/; \
+		fi; \
+	done
+	@echo "$(GREEN)Raw binaries copied to $(DIST_DIR)/$(RESET)"
+	@ls -la $(DIST_DIR)/
